@@ -29,32 +29,36 @@ if uploaded_file:
     # -------------------------------
     # 2️⃣ Separate stems
     if st.button("Separate Stems"):
-        with st.spinner("Separating stems with Demucs..."):
-            output_dir = "demucs_output"
-            if os.path.exists(output_dir):
-                shutil.rmtree(output_dir)
-             demucs_separate([
-           "-n", "htdemucs",
-           "--two-stems=vocals",
-           "--out", output_dir,
-           "song.wav"
+    with st.spinner("Separating stems with Demucs..."):
+        output_dir = "demucs_output"
+
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+
+        demucs_separate([
+            "-n", "htdemucs",
+            "--two-stems=vocals",
+            "--out", output_dir,
+            "song.wav"
         ])
 
-        st.success("Stems separated!")
+    st.success("Stems separated!")
 
-        # Locate stems
-        stem_base = os.path.join(output_dir, "htdemucs")
+    # ---- SAFE stem folder detection ----
+    stem_base = os.path.join(output_dir, "htdemucs")
+
     if not os.path.exists(stem_base):
-         st.error("❌ Demucs failed to create stem folder. Try a shorter song.")
-         st.stop()
+        st.error("❌ Demucs failed to create stem folder.")
+        st.stop()
 
     subfolders = glob.glob(os.path.join(stem_base, "*"))
 
     if len(subfolders) == 0:
-         st.error("❌ No stems found. Demucs may have failed due to memory limits.")
-         st.stop()
+        st.error("❌ No stems found. Try a shorter song.")
+        st.stop()
 
     stem_folder = subfolders[0]
+
 
         stems = {
             "lead": os.path.join(stem_folder, "vocals.wav"),
