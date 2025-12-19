@@ -3,8 +3,15 @@ import os, shutil, glob
 from demucs.separate import main as demucs_separate
 import whisper
 
-st.set_page_config(page_title="AI Audio Mixer & Lyrics App", layout="centered")
-st.title("🎵 AI Audio Mixer & Lyrics App")
+st.set_page_config(
+    page_title="LYRA – AI Music Studio",
+    layout="centered",
+    page_icon="🎧"
+)
+
+st.title("🎧 LYRA")
+st.subheader("AI Music Studio • Mix • Separate • Transcribe")
+
 
 # -------------------------------
 # 1️⃣ Upload MP3
@@ -26,15 +33,29 @@ if uploaded_file:
             output_dir = "demucs_output"
             if os.path.exists(output_dir):
                 shutil.rmtree(output_dir)
-            demucs_separate([
-                "-n", "htdemucs",
-                "--out", output_dir,
-                "song.wav"
-            ])
+             demucs_separate([
+           "-n", "htdemucs",
+           "--two-stems=vocals",
+           "--out", output_dir,
+           "song.wav"
+        ])
+
         st.success("Stems separated!")
 
         # Locate stems
-        stem_folder = glob.glob(os.path.join(output_dir, "htdemucs", "*"))[0]
+        stem_base = os.path.join(output_dir, "htdemucs")
+    if not os.path.exists(stem_base):
+         st.error("❌ Demucs failed to create stem folder. Try a shorter song.")
+         st.stop()
+
+    subfolders = glob.glob(os.path.join(stem_base, "*"))
+
+    if len(subfolders) == 0:
+         st.error("❌ No stems found. Demucs may have failed due to memory limits.")
+         st.stop()
+
+    stem_folder = subfolders[0]
+
         stems = {
             "lead": os.path.join(stem_folder, "vocals.wav"),
             "drums": os.path.join(stem_folder, "drums.wav"),
