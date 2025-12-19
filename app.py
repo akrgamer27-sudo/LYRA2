@@ -16,6 +16,10 @@ if uploaded_file:
         f.write(uploaded_file.read())
     st.audio("song.mp3")
 
+    # Convert to WAV to avoid TorchCodec issues
+    audio = AudioSegment.from_file("song.mp3")
+    audio.export("song.wav", format="wav")
+
     # -------------------------------
     # 2️⃣ Separate stems
     if st.button("Separate Stems"):
@@ -26,7 +30,7 @@ if uploaded_file:
             demucs_separate([
                 "-n", "htdemucs",
                 "--out", output_dir,
-                "song.mp3"
+                "song.wav"  # Use WAV
             ])
         st.success("Stems separated!")
 
@@ -85,7 +89,7 @@ if uploaded_file:
     if st.button("Extract Lyrics"):
         with st.spinner("Loading Whisper model and transcribing..."):
             model = whisper.load_model("large")
-            result = model.transcribe("song.mp3")
+            result = model.transcribe("song.wav")  # use WAV
             lyrics = result["text"]
 
         st.subheader("Extracted Lyrics")
