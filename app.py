@@ -1,123 +1,151 @@
 import streamlit as st
-import os, shutil, glob
+import os
+import shutil
+import glob
+import subprocess
 from demucs.separate import main as demucs_separate
 import whisper
+from pydub import AudioSegment
 
+# -------------------------------------------------
+# PAGE CONFIG
+# -------------------------------------------------
 st.set_page_config(
     page_title="LYRA – AI Music Studio",
-    layout="centered",
-    page_icon="🎧"
+    page_icon="🎧",
+    layout="centered"
 )
 
 st.title("🎧 LYRA")
 st.subheader("AI Music Studio • Mix • Separate • Transcribe")
 
+# -------------------------------------------------
+# FILE UPLOAD
+# -------------------------------------------------
+uploaded_file = st.file_uploader("Upload an MP3 file", type=["mp3"])
 
-# -------------------------------
-# 1️⃣ Upload MP3
-uploaded_file = st.file_uploader("Upload your MP3", type=["mp3"])
-
-if uploaded_file:
+if uploaded_file is not None:
     with open("song.mp3", "wb") as f:
         f.write(uploaded_file.read())
-    
+
     st.audio("song.mp3")
-    
-    # Convert MP3 to WAV using ffmpeg system command (works on Streamlit Cloud)
-    os.system("ffmpeg -y -i song.mp3 song.wav")
-    
-    # -------------------------------
-    # 2️⃣ Separate stems
-    if st.button("Separate Stems"):
-    with st.spinner("Separating stems with Demucs..."):
-        output_dir = "demucs_output"
 
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
+    # -------------------------------------------------
+    # MP3 → WAV (SAFE METHOD)
+    # -------------------------------------------------
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", "song.mp3", "song.wav"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
 
-        demucs_separate([
-            "-n", "htdemucs",
-            "--two-stems=vocals",
-            "--out", output_dir,
-            "song.wav"
-        ])
+    # -------------------------------------------------
+    # STEM SEPARATION
+    # -------------------------------------------------
+    if st.button("🎛 Separate Stems"):
+        with st.spinner("Separating stems with Demucs (this may take time)..."):
 
-    st.success("Stems separated!")
+            output_dir = "demucs_output"
 
-    # ---- SAFE stem folder detection ----
-    stem_base = os.path.join(output_dir, "htdemucs")
+            if os.path.exists(output_dir):
+                shutil.rmtree(output_dir)
 
-    if not os.path.exists(stem_base):
-        st.error("❌ Demucs failed to create stem folder.")
-        st.stop()
+            demucs_separate([
+                "-n", "htdemucs",
+                "--two-stems=vocals",
+                "--out", output_dir,
+                "song.wav"
+            ])
 
-    subfolders = glob.glob(os.path.join(stem_base, "*"))
+        st.success("Stems separated successfully!")
 
-    if len(subfolders) == 0:
-        st.error("❌ No stems found. Try a shorter song.")
-        st.stop()
+        # -------------------------------------------------
+        # SAFE STEM FOLDER DETECTION
+        # -------------------------------------------------
+        stem_root = os.path.join(output_dir, "htdemucs")
 
-    stem_folder = subfolders[0]
+        if not os.path.exists(stem_root):
+            st.error("❌ Stem folder not found. Try a shorter audio.")
+            st.stop()
 
+        stem_folders = glob.glob(os.path.join(stem_root, "*"))
+
+        if len(stem_folders) == 0:
+            st.error("❌ No stems generated. Demucs may have failed.")
+            st.stop()
+
+        stem_folder = stem_folders[0]
 
         stems = {
-            "lead": os.path.join(stem_folder, "vocals.wav"),
+            "vocals": os.path.join(stem_folder, "vocals.wav"),
             "drums": os.path.join(stem_folder, "drums.wav"),
             "bass": os.path.join(stem_folder, "bass.wav"),
-            "synth": os.path.join(stem_folder, "other.wav")
+            "other": os.path.join(stem_folder, "other.wav")
         }
 
-        # -------------------------------
-        # 3️⃣ Volume sliders
-        st.subheader("Adjust Stem Volumes")
-        lead_db = st.slider("Lead dB", -40, 10, 0)
-        drums_db = st.slider("Drums dB", -40, 10, 0)
-        bass_db = st.slider("Bass dB", -40, 10, 0)
-        synth_db = st.slider("Synth/Other dB", -40, 10, 0)
+        # -------------------------------------------------
+        # MIXER UI
+        # -------------------------------------------------
+        st.subheader("🎚 Mixer")
 
-        # Mix function
-        from pydub import AudioSegment
-        def mix_stems(volumes, output_file="mixed_output.mp3"):
-            final_mix = None
-            for stem_name, path in stems.items():
+        vocal_db = st.slider("Vocals", -40, 10, 0)
+        drum_db = st.slider("Drums", -40, 10, 0)
+        bass_db = st.slider("Bass", -40, 10, 0)
+        other_db = st.slider("Synth / Other", -40, 10, 0)
+
+        def mix_audio(volumes, output_name):
+            mix = None
+            for name, path in stems.items():
                 audio = AudioSegment.from_file(path)
-                audio = audio + volumes.get(stem_name, 0)
-                if final_mix is None:
-                    final_mix = audio
-                else:
-                    final_mix = final_mix.overlay(audio)
-            final_mix.export(output_file, format="mp3")
-            return output_file
+                audio = audio + volumes.get(name, 0)
+                mix = audio if mix is None else mix.overlay(audio)
+            mix.export(output_name, format="mp3")
+            return output_name
 
-        # Preview mixed audio
-        if st.button("Preview Mix"):
-            mixed_file = mix_stems({
-                "lead": lead_db,
-                "drums": drums_db,
-                "bass": bass_db,
-                "synth": synth_db
-            })
+        if st.button("▶ Preview Mix"):
+            mixed_file = mix_audio(
+                {
+                    "vocals": vocal_db,
+                    "drums": drum_db,
+                    "bass": bass_db,
+                    "other": other_db
+                },
+                "preview_mix.mp3"
+            )
             st.audio(mixed_file)
 
-        # Download Karaoke version
-        if st.button("Download Karaoke Version"):
-            karaoke_file = mix_stems({
-                "lead": -100,  # mute vocals
-                "drums": drums_db,
-                "bass": bass_db,
-                "synth": synth_db
-            }, output_file="karaoke_version.mp3")
-            st.download_button("Download Karaoke MP3", karaoke_file, file_name="karaoke_version.mp3")
+        if st.button("⬇ Download Karaoke"):
+            karaoke_file = mix_audio(
+                {
+                    "vocals": -100,
+                    "drums": drum_db,
+                    "bass": bass_db,
+                    "other": other_db
+                },
+                "karaoke.mp3"
+            )
+            st.download_button(
+                "Download Karaoke MP3",
+                open(karaoke_file, "rb"),
+                file_name="karaoke.mp3"
+            )
 
-    # -------------------------------
-    # 4️⃣ Extract Lyrics with Whisper
-    if st.button("Extract Lyrics"):
-        with st.spinner("Loading Whisper model and transcribing..."):
-            model = whisper.load_model("large")
+    # -------------------------------------------------
+    # LYRICS EXTRACTION
+    # -------------------------------------------------
+    if st.button("📝 Extract Lyrics"):
+        with st.spinner("Transcribing using Whisper AI..."):
+            model = whisper.load_model("base")
             result = model.transcribe("song.wav")
             lyrics = result["text"]
 
         st.subheader("Extracted Lyrics")
         st.text_area("Lyrics", lyrics, height=300)
-        st.download_button("Download Lyrics", lyrics, file_name="lyrics.txt")
-        st.info("⚠️ Lyrics may not be 100% accurate depending on accent or language.")
+
+        st.download_button(
+            "⬇ Download Lyrics",
+            lyrics,
+            file_name="lyrics.txt"
+        )
+
+        st.info("⚠ Lyrics accuracy depends on language, accent, and audio quality.")
