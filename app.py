@@ -1,97 +1,81 @@
 import streamlit as st
+import tempfile
 import os
-import shutil
-import glob
 import numpy as np
 import soundfile as sf
-import torchaudio
-from demucs.separate import main as demucs_separate
-import whisper
 
-# -------------------------------------------------
-# PAGE CONFIG
-# -------------------------------------------------
 st.set_page_config(
-    page_title="LYRA – AI Music Studio",
+    page_title="LYRA – Music Studio",
     page_icon="🎧",
     layout="centered"
 )
 
 st.title("🎧 LYRA")
-st.subheader("AI Music Studio • Separate • Mix • Transcribe")
+st.subheader("Python-based Audio Web Application")
 
-# -------------------------------------------------
-# FILE UPLOAD
-# -------------------------------------------------
-uploaded_file = st.file_uploader("Upload an MP3 file", type=["mp3"])
+st.markdown(
+    """
+    Upload a song and control its sound using sliders.
+    This is a Python web application built using Streamlit.
+    """
+)
+
+# -----------------------------
+# File upload
+# -----------------------------
+uploaded_file = st.file_uploader(
+    "Upload an MP3 or WAV file",
+    type=["mp3", "wav"]
+)
 
 if uploaded_file is not None:
-    with open("song.mp3", "wb") as f:
-        f.write(uploaded_file.read())
+    # Save uploaded file temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp.write(uploaded_file.read())
+        audio_path = tmp.name
 
-    st.audio("song.mp3")
+    # Load audio
+    audio, sr = sf.read(audio_path)
 
-    # -------------------------------------------------
-    # STEM SEPARATION
-    # -------------------------------------------------
-    if st.button("🎛 Separate Stems"):
-        with st.spinner("Separating stems with Demucs..."):
+    st.audio(audio_path)
 
-            output_dir = "demucs_output"
-            if os.path.exists(output_dir):
-                shutil.rmtree(output_dir)
+    st.divider()
+    st.subheader("🎚 Audio Controls")
 
-            demucs_separate([
-                "-n", "htdemucs",
-                "--out", output_dir,
-                "song.mp3"
-            ])
+    # Sliders
+    vocal_gain = st.slider("🎤 Vocal (Mid frequencies)", 0.0, 2.0, 1.0, 0.01)
+    drum_gain = st.slider("🥁 Drums (Low frequencies)", 0.0, 2.0, 1.0, 0.01)
+    synth_gain = st.slider("🎹 Synth (High frequencies)", 0.0, 2.0, 1.0, 0.01)
 
-        st.success("Stem separation complete!")
+    # Simple frequency-based processing
+    fft = np.fft.rfft(audio, axis=0)
+    freqs = np.fft.rfftfreq(len(audio), d=1/sr)
 
-        stem_root = os.path.join(output_dir, "htdemucs")
-        folders = glob.glob(os.path.join(stem_root, "*"))
+    low = freqs < 250
+    mid = (freqs >= 250) & (freqs < 4000)
+    high = freqs >= 4000
 
-        if not folders:
-            st.error("❌ Stem folder not found.")
-            st.stop()
+    fft[low] *= drum_gain
+    fft[mid] *= vocal_gain
+    fft[high] *= synth_gain
 
-        stem_folder = folders[0]
+    processed_audio = np.fft.irfft(fft, axis=0)
 
-        # -------------------------------------------------
-        # LOAD STEMS
-        # -------------------------------------------------
-        def load_wav(path):
-            audio, sr = sf.read(path)
-            if audio.ndim == 1:
-                audio = audio[:, None]
-            return audio, sr
+    # Save processed audio
+    out_path = os.path.join(tempfile.gettempdir(), "lyra_mix.wav")
+    sf.write(out_path, processed_audio, sr)
 
-        vocals, sr = load_wav(os.path.join(stem_folder, "vocals.wav"))
-        drums, _ = load_wav(os.path.join(stem_folder, "drums.wav"))
-        bass, _ = load_wav(os.path.join(stem_folder, "bass.wav"))
-        other, _ = load_wav(os.path.join(stem_folder, "other.wav"))
+    st.success("Audio processed successfully!")
+    st.audio(out_path)
 
-        # -------------------------------------------------
-        # MIXER
-        # -------------------------------------------------
-        st.subheader("🎚 Live Mixer")
+    with open(out_path, "rb") as f:
+        st.download_button(
+            "⬇ Download Mixed Audio",
+            f,
+            file_name="lyra_mix.wav",
+            mime="audio/wav"
+        )
 
-        v_db = st.slider("Vocals", -40, 10, 0)
-        d_db = st.slider("Drums", -40, 10, 0)
-        b_db = st.slider("Bass", -40, 10, 0)
-        o_db = st.slider("Synth / Other", -40, 10, 0)
+else:
+    st.info("Please upload an audio file to begin.")
 
-        def db_to_gain(db):
-            return 10 ** (db / 20)
-
-        def mix_audio(mute_vocals=False):
-            mix = (
-                vocals * (0 if mute_vocals else db_to_gain(v_db)) +
-                drums * db_to_gain(d_db) +
-                bass * db_to_gain(b_db) +
-                other * db_to_gain(o_db)
-            )
-            return np.clip(mix, -1.0, 1.0)
-
-        if st.
