@@ -1,7 +1,6 @@
 import streamlit as st
-from pydub import AudioSegment
-from demucs.separate import main as demucs_separate
 import os, shutil, glob
+from demucs.separate import main as demucs_separate
 import whisper
 
 st.set_page_config(page_title="AI Audio Mixer & Lyrics App", layout="centered")
@@ -14,12 +13,12 @@ uploaded_file = st.file_uploader("Upload your MP3", type=["mp3"])
 if uploaded_file:
     with open("song.mp3", "wb") as f:
         f.write(uploaded_file.read())
+    
     st.audio("song.mp3")
-
-    # Convert to WAV to avoid TorchCodec issues
-    audio = AudioSegment.from_file("song.mp3")
-    audio.export("song.wav", format="wav")
-
+    
+    # Convert MP3 to WAV using ffmpeg system command (works on Streamlit Cloud)
+    os.system("ffmpeg -y -i song.mp3 song.wav")
+    
     # -------------------------------
     # 2️⃣ Separate stems
     if st.button("Separate Stems"):
@@ -30,7 +29,7 @@ if uploaded_file:
             demucs_separate([
                 "-n", "htdemucs",
                 "--out", output_dir,
-                "song.wav"  # Use WAV
+                "song.wav"
             ])
         st.success("Stems separated!")
 
@@ -52,6 +51,7 @@ if uploaded_file:
         synth_db = st.slider("Synth/Other dB", -40, 10, 0)
 
         # Mix function
+        from pydub import AudioSegment
         def mix_stems(volumes, output_file="mixed_output.mp3"):
             final_mix = None
             for stem_name, path in stems.items():
@@ -89,7 +89,7 @@ if uploaded_file:
     if st.button("Extract Lyrics"):
         with st.spinner("Loading Whisper model and transcribing..."):
             model = whisper.load_model("large")
-            result = model.transcribe("song.wav")  # use WAV
+            result = model.transcribe("song.wav")
             lyrics = result["text"]
 
         st.subheader("Extracted Lyrics")
