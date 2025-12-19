@@ -2,9 +2,9 @@ import streamlit as st
 import os
 import shutil
 import glob
-import subprocess
 import numpy as np
 import soundfile as sf
+import torchaudio
 from demucs.separate import main as demucs_separate
 import whisper
 
@@ -18,7 +18,7 @@ st.set_page_config(
 )
 
 st.title("🎧 LYRA")
-st.subheader("AI Music Studio • Mix • Separate • Transcribe")
+st.subheader("AI Music Studio • Separate • Mix • Transcribe")
 
 # -------------------------------------------------
 # FILE UPLOAD
@@ -30,13 +30,6 @@ if uploaded_file is not None:
         f.write(uploaded_file.read())
 
     st.audio("song.mp3")
-
-    # MP3 → WAV
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", "song.mp3", "song.wav"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
 
     # -------------------------------------------------
     # STEM SEPARATION
@@ -50,30 +43,29 @@ if uploaded_file is not None:
 
             demucs_separate([
                 "-n", "htdemucs",
-                "--two-stems=vocals",
                 "--out", output_dir,
-                "song.wav"
+                "song.mp3"
             ])
 
-        st.success("Stems separated!")
+        st.success("Stem separation complete!")
 
         stem_root = os.path.join(output_dir, "htdemucs")
         folders = glob.glob(os.path.join(stem_root, "*"))
 
         if not folders:
-            st.error("❌ Stem separation failed.")
+            st.error("❌ Stem folder not found.")
             st.stop()
 
         stem_folder = folders[0]
 
         # -------------------------------------------------
-        # LOAD STEMS (NUMPY)
+        # LOAD STEMS
         # -------------------------------------------------
         def load_wav(path):
-            data, sr = sf.read(path)
-            if data.ndim == 1:
-                data = np.expand_dims(data, axis=1)
-            return data, sr
+            audio, sr = sf.read(path)
+            if audio.ndim == 1:
+                audio = audio[:, None]
+            return audio, sr
 
         vocals, sr = load_wav(os.path.join(stem_folder, "vocals.wav"))
         drums, _ = load_wav(os.path.join(stem_folder, "drums.wav"))
@@ -81,9 +73,9 @@ if uploaded_file is not None:
         other, _ = load_wav(os.path.join(stem_folder, "other.wav"))
 
         # -------------------------------------------------
-        # MIXER UI
+        # MIXER
         # -------------------------------------------------
-        st.subheader("🎚 Mixer")
+        st.subheader("🎚 Live Mixer")
 
         v_db = st.slider("Vocals", -40, 10, 0)
         d_db = st.slider("Drums", -40, 10, 0)
@@ -93,37 +85,13 @@ if uploaded_file is not None:
         def db_to_gain(db):
             return 10 ** (db / 20)
 
-        def mix_and_export(filename, mute_vocals=False):
+        def mix_audio(mute_vocals=False):
             mix = (
                 vocals * (0 if mute_vocals else db_to_gain(v_db)) +
                 drums * db_to_gain(d_db) +
                 bass * db_to_gain(b_db) +
                 other * db_to_gain(o_db)
             )
-            mix = np.clip(mix, -1.0, 1.0)
-            sf.write(filename, mix, sr)
+            return np.clip(mix, -1.0, 1.0)
 
-        if st.button("▶ Preview Mix"):
-            mix_and_export("preview.wav")
-            st.audio("preview.wav")
-
-        if st.button("⬇ Download Karaoke"):
-            mix_and_export("karaoke.wav", mute_vocals=True)
-            st.download_button(
-                "Download Karaoke",
-                open("karaoke.wav", "rb"),
-                file_name="karaoke.wav"
-            )
-
-    # -------------------------------------------------
-    # LYRICS
-    # -------------------------------------------------
-    if st.button("📝 Extract Lyrics"):
-        with st.spinner("Transcribing with Whisper..."):
-            model = whisper.load_model("base")
-            result = model.transcribe("song.wav")
-
-        lyrics = result["text"]
-
-        st.text_area("Lyrics", lyrics, height=300)
-        st.download_button("⬇ Download Lyrics", lyrics, "lyrics.txt")
+        if st.
