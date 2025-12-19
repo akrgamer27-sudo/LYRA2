@@ -1,0 +1,8 @@
+streamlit
+pydub
+librosa
+numpy
+soundfile
+torch
+openai-whisper
+demucs
